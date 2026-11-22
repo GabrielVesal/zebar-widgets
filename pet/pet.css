@@ -1,0 +1,146 @@
+/* ---- Pet: cores por estado, olhos e efeitos ---- */
+@property --ring { syntax: '<color>'; inherits: true; initial-value: #2196f3; }
+@property --ring-hi { syntax: '<color>'; inherits: true; initial-value: #90caf9; }
+@property --ring-lo { syntax: '<color>'; inherits: true; initial-value: #0d47a1; }
+
+.root #pet {
+  width: 88px;
+  aspect-ratio: 1;
+  animation: none;
+  filter: none;
+}
+.root .dust,
+.root .badge {
+  display: none;
+}
+
+/* Cor principal do pet. Troque aqui para mudar a cor de tudo. */
+.pet-char {
+  --ring: #2196f3;
+  --ring-hi: #7fd0ff;
+  --ring-lo: #0b3fa8;
+  --eye: var(--ring-hi);
+  width: 100%;
+  height: 100%;
+  transition: --ring 0.45s ease, --ring-hi 0.45s ease, --ring-lo 0.45s ease;
+}
+.pet-char[data-state='waiting'] { --ring: #ffab00; --ring-hi: #ffe36b; --ring-lo: #e05a00; }
+.pet-char[data-state='done'] { --ring: #00e676; --ring-hi: #a8ffcf; --ring-lo: #00a050; }
+.pet-char[data-state='error'] { --ring: #ff1744; --ring-hi: #ff8a9e; --ring-lo: #b0002a; }
+.pet-char[data-state='sleep'] { --ring: #5c6075; --ring-hi: #8d91a8; --ring-lo: #383b4c; }
+.pet-char[data-state='working'] { --ring: #2979ff; --ring-hi: #82e9ff; --ring-lo: #0d2fb0; }
+.pet-char[data-state='listening'] { --ring: #00b0ff; --ring-hi: #9ff1ff; --ring-lo: #0057c2; }
+
+.pt-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.pt-shadow {
+  fill: #000;
+  filter: blur(2px);
+}
+
+/* luz da antena e das orelhas */
+.pt-bulb { fill: var(--ring); }
+.pt-bulb-glow { fill: var(--ring); opacity: 0.55; }
+.pt-ear { fill: var(--ring); opacity: 0.85; }
+[data-state='working'] .pt-bulb,
+[data-state='thinking'] .pt-bulb,
+[data-state='working'] .pt-bulb-glow,
+[data-state='thinking'] .pt-bulb-glow {
+  animation: bulb 0.5s ease-in-out infinite alternate;
+}
+[data-state='sleep'] .pt-bulb-glow { opacity: 0.1; }
+@keyframes bulb {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
+
+.pt-moon {
+  stroke: #050506;
+  stroke-width: 0.8;
+  filter: drop-shadow(0 0 1.5px var(--ring));
+}
+
+/* olhos: os formatos trocam com fade + escala, sem corte seco */
+.pt-eye > * {
+  fill: none;
+  stroke: var(--eye);
+  stroke-width: 2.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+  transform: scale(0.4);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    opacity 0.16s ease,
+    transform 0.28s cubic-bezier(0.34, 1.7, 0.5, 1);
+}
+.pt-eye rect {
+  fill: var(--eye);
+  stroke: none;
+}
+.pt-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.08s ease;
+}
+.pt-eyes.blink {
+  transform: scaleY(0.1);
+}
+
+[data-face='happy'] .e-happy,
+[data-face='open'] .e-open,
+[data-face='wide'] .e-wide,
+[data-face='focus'] .e-focus,
+[data-face='x'] .e-x,
+[data-face='sleep'] .e-sleep,
+[data-face='squint'] .e-squint {
+  opacity: 1;
+  transform: scale(1);
+}
+[data-state='done'][data-face='happy'] .e-happy {
+  transform: scale(1.25);
+}
+
+/* ! e zz */
+.pt-alert,
+.pt-zz {
+  opacity: 0;
+  transition: opacity 0.25s;
+  font-family: 'Segoe UI', Inter, sans-serif;
+  font-weight: 900;
+}
+.pt-alert {
+  fill: var(--ring);
+  font-size: 24px;
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: alert 0.75s ease-in-out infinite;
+  filter: drop-shadow(0 0 2px var(--ring));
+}
+.pt-zz text {
+  fill: #9a9eb8;
+  font-size: 11px;
+  animation: zz 2.8s ease-in-out infinite;
+}
+.pt-zz text:nth-child(2) {
+  animation-delay: 1.4s;
+}
+[data-state='waiting'] .pt-alert,
+[data-state='sleep'] .pt-zz {
+  opacity: 1;
+}
+
+@keyframes alert {
+  0%, 100% { transform: rotate(-10deg) scale(1); }
+  50% { transform: rotate(12deg) scale(1.25); }
+}
+@keyframes zz {
+  0% { opacity: 0; transform: translate(0, 4px); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: translate(4px, -6px); }
+}

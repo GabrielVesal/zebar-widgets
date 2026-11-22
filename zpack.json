@@ -1,0 +1,99 @@
+{
+  "$schema": "https://github.com/glzr-io/zebar/raw/v3.3.1/resources/zpack-schema.json",
+  "name": "zebar-widgets",
+  "version": "1.0.0",
+  "description": "Spotify na barra de tarefas + um pet com IA (Claude Code) que mora no canto da tela.",
+  "tags": [
+    "spotify",
+    "claude",
+    "ai",
+    "pet"
+  ],
+  "previewImages": [],
+  "repositoryUrl": "https://github.com/GabrielVesal/zebar-widgets",
+  "widgets": [
+    {
+      "name": "spotify",
+      "htmlPath": "spotify/index.html",
+      "zOrder": "top_most",
+      "shownInTaskbar": false,
+      "focused": false,
+      "resizable": false,
+      "transparent": true,
+      "includeFiles": [
+        "spotify/**"
+      ],
+      "caching": {
+        "defaultDuration": 604800,
+        "rules": []
+      },
+      "privileges": {
+        "shellCommands": []
+      },
+      "presets": [
+        {
+          "name": "default",
+          "anchor": "bottom_right",
+          "offsetX": "-32px",
+          "offsetY": "-54px",
+          "width": "232px",
+          "height": "40px",
+          "monitorSelection": {
+            "type": "primary"
+          },
+          "dockToEdge": {
+            "enabled": false,
+            "edge": null,
+            "windowMargin": "0px"
+          }
+        }
+      ]
+    },
+    {
+      "name": "pet",
+      "htmlPath": "pet/index.html",
+      "zOrder": "top_most",
+      "shownInTaskbar": false,
+      "focused": false,
+      "resizable": false,
+      "transparent": true,
+      "includeFiles": [
+        "pet/**"
+      ],
+      "caching": {
+        "defaultDuration": 604800,
+        "rules": []
+      },
+      "privileges": {
+        "shellCommands": [
+          {
+            "program": "wt.exe",
+            "argsRegex": ".*"
+          },
+          {
+            "program": "powershell.exe",
+            "argsRegex": "^-NoProfile -EncodedCommand [A-Za-z0-9+/=]+$"
+          }
+        ]
+      },
+      "presets": [
+        {
+          "name": "default",
+          "anchor": "bottom_right",
+          "offsetX": "-12px",
+          "offsetY": "-104px",
+          "width": "80px",
+          "height": "80px",
+          "monitorSelection": {
+            "type": "primary"
+          },
+          "dockToEdge": {
+            "enabled": false,
+            "edge": null,
+            "windowMargin": "0px"
+          }
+        }
+      ]
+    }
+  ]
+}

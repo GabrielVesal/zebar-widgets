@@ -1,0 +1,193 @@
+/* Ajuste aqui para mudar a cara do widget. */
+:root {
+  --accent: #1ed760;
+  --text: rgba(255, 255, 255, 0.95);
+  --muted: rgba(255, 255, 255, 0.62);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  color: var(--text);
+}
+
+.card {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 6px 0 10px;
+  /* Fundo discreto, sem borda: o widget fica acima da barra de tarefas e
+     precisa continuar legível sobre qualquer janela */
+  background: rgba(14, 14, 18, 0.55);
+  border-radius: 12px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  transition: opacity 0.3s ease;
+}
+
+.card.idle {
+  opacity: 0.6;
+}
+
+/* Equalizador animado */
+.eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.eq span {
+  width: 2.5px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.playing .eq span {
+  animation: bounce 0.9s ease-in-out infinite;
+}
+
+.playing .eq span:nth-child(2) {
+  animation-delay: -0.3s;
+}
+.playing .eq span:nth-child(3) {
+  animation-delay: -0.6s;
+}
+.playing .eq span:nth-child(4) {
+  animation-delay: -0.15s;
+}
+
+@keyframes bounce {
+  0%,
+  100% {
+    height: 4px;
+  }
+  50% {
+    height: 14px;
+  }
+}
+
+.info {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.title,
+.artist {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.artist {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+button svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+}
+
+button.main {
+  width: 26px;
+  height: 26px;
+}
+
+button.main svg {
+  width: 15px;
+  height: 15px;
+}
+
+#icon-pause {
+  display: none;
+}
+
+.playing #icon-play {
+  display: none;
+}
+
+.playing #icon-pause {
+  display: block;
+}
+
+/* Alça: equalizador clicável (minimiza) e arrastável (move) */
+.eq {
+  cursor: pointer;
+  /* área de clique maior que o desenho */
+  padding: 13px 6px;
+  margin: -13px -6px;
+  box-sizing: content-box;
+}
+
+.info {
+  cursor: grab;
+}
+
+/* Minimizado: sobra só o equalizador */
+.card.collapsed {
+  padding: 0;
+  justify-content: center;
+}
+
+.card.collapsed .info,
+.card.collapsed .controls {
+  display: none;
+}

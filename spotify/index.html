@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" type="text/css" href="./styles.css" />
+  </head>
+  <body>
+    <div id="card" class="card idle">
+      <div id="handle" class="eq" title="Click to minimize, drag to move">
+        <span></span><span></span><span></span><span></span>
+      </div>
+
+      <div id="info" class="info" title="Drag to move, scroll for volume">
+        <div id="title" class="title">Nothing playing</div>
+        <div id="artist" class="artist"></div>
+      </div>
+
+      <div class="controls">
+        <button id="prev" title="Previous">
+          <svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z" /></svg>
+        </button>
+        <button id="toggle" class="main" title="Play / pause">
+          <svg id="icon-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8z" /></svg>
+          <svg id="icon-pause" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z" /></svg>
+        </button>
+        <button id="next" title="Next">
+          <svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z" /></svg>
+        </button>
+      </div>
+    </div>
+
+    <script type="module">
+      import * as zebar from 'https://esm.sh/zebar@3.3.1';
+
+      const providers = zebar.createProviderGroup({
+        media: { type: 'media' },
+        audio: { type: 'audio' },
+      });
+
+      const $ = id => document.getElementById(id);
+      const card = $('card');
+      let volumeTimer = null;
+
+      function render() {
+        const session = providers.outputMap.media?.currentSession ?? null;
+
+        card.classList.toggle('idle', !session);
+        card.classList.toggle('playing', !!session?.isPlaying);
+
+        // Enquanto o volume está sendo mostrado, não sobrescreve o texto.
+        if (!volumeTimer) {
+          $('title').textContent = session?.title || 'Nothing playing';
+          $('artist').textContent = session?.artist || '';
+        }
+
+        // O Spotify nem sempre informa que dá para pular/voltar, então os
+        // botões ficam ativos sempre que houver algo tocando.
+        $('prev').disabled = !session;
+        $('next').disabled = !session;
+        $('toggle').disabled = !session;
+      }
+
+      // Rolar o mouse em cima do widget ajusta o volume do sistema de 2 em 2
+      // e mostra o valor por um instante no lugar do artista.
+      card.addEventListener('wheel', e => {
+        const audio = providers.outputMap.audio;
+        const device = audio?.defaultPlaybackDevice;
+        if (!device) return;
+
+        const next = Math.round(
+          Math.min(100, Math.max(0, device.volume + (e.deltaY < 0 ? 2 : -2))),
+        );
+        audio.setVolume(next);
+
+        $('artist').textContent = `Volume ${next}%`;
+        clearTimeout(volumeTimer);
+        volumeTimer = setTimeout(() => {
+          volumeTimer = null;
+          render();
+        }, 1200);
+      });
+
+      $('toggle').addEventListener('click', () =>
+        providers.outputMap.media?.togglePlayPause(),
+      );
+      $('next').addEventListener('click', () => providers.outputMap.media?.next());
+      $('prev').addEventListener('click', () =>
+        providers.outputMap.media?.previous(),
+      );
+
+      // ---- Minimizar e arrastar ----
+      // Clique no equalizador: minimiza/expande. Arrastar o equalizador ou o
+      // texto: move o widget. A posição e o estado ficam salvos.
+      const STORE = 'spotify-widget-state-v3';
+      const COLLAPSED_SIZE = 40; // px lógicos
+
+      function loadState() {
+        try {
+          return JSON.parse(localStorage.getItem(STORE)) || {};
+        } catch {
+          return {};
+        }
+      }
+
+      function saveState(state) {
+        try {
+          localStorage.setItem(STORE, JSON.stringify(state));
+        } catch {}
+      }
+
+      async function setupWindow() {
+        const win = zebar.currentWidget().tauriWindow;
+        const scale = await win.scaleFactor();
+        const startPos = await win.outerPosition();
+        const fullSize = await win.innerSize();
+        const Pos = startPos.constructor;
+        const Size = fullSize.constructor;
+        const small = Math.round(COLLAPSED_SIZE * scale);
+
+        const state = loadState();
+        // Posição do widget expandido (canto superior esquerdo, px físicos).
+        let pos = { x: startPos.x, y: startPos.y };
+        let collapsed = false;
+
+        // Telas ligadas ao computador, em px físicos. Serve para manter o
+        // widget dentro da tela em que ele está, com uma ou mais telas.
+        let monitors = [];
+        try {
+          const api = await import('https://esm.sh/@tauri-apps/api@2/window');
+          monitors = (await api.availableMonitors()).map(m => ({
+            l: m.position.x,
+            t: m.position.y,
+            r: m.position.x + m.size.width,
+            b: m.position.y + m.size.height,
+          }));
+        } catch (err) {
+          console.error(err);
+        }
+        // Sem essa informação o widget fica livre, sem limite de tela.
+        if (!monitors.length) monitors = [{ l: -1e7, t: -1e7, r: 1e7, b: 1e7 }];
+
+        // Tela mais próxima de um retângulo.
+        function monitorOf(p, w, h) {
+          const cx = p.x + w / 2;
+          const cy = p.y + h / 2;
+          let best = monitors[0];
+          let bestDist = Infinity;
+          for (const m of monitors) {
+            const dx = Math.max(m.l - cx, 0, cx - m.r);
+            const dy = Math.max(m.t - cy, 0, cy - m.b);
+            const dist = dx * dx + dy * dy;
+            if (dist < bestDist) {
+              bestDist = dist;
+              best = m;
+            }
+          }
+          return best;
+        }
+
+        function clamp(p) {
+          const m = monitorOf(p, fullSize.width, fullSize.height);
+          return {
+            x: Math.min(Math.max(m.l, p.x), Math.max(m.l, m.r - fullSize.width)),
+            y: Math.min(Math.max(m.t, p.y), Math.max(m.t, m.b - fullSize.height)),
+          };
+        }
+
+        async function apply() {
+          card.classList.toggle('collapsed', collapsed);
+          if (collapsed) {
+            // Mantém a borda direita no lugar ao encolher.
+            await win.setSize(new Size(small, fullSize.height));
+            await win.setPosition(new Pos(pos.x + fullSize.width - small, pos.y));
+          } else {
+            await win.setPosition(new Pos(pos.x, pos.y));
+            await win.setSize(new Size(fullSize.width, fullSize.height));
+          }
+        }
+
+        if (typeof state.x === 'number' && typeof state.y === 'number') {
+          pos = clamp({ x: state.x, y: state.y });
+        }
+        // Começa minimizado, a não ser que tenha sido deixado aberto.
+        collapsed = state.collapsed !== false;
+        if (collapsed || pos.x !== startPos.x || pos.y !== startPos.y) {
+          await apply();
+        }
+
+        let drag = null;
+
+        function onDown(e) {
+          if (e.button !== 0) return;
+          drag = { sx: e.screenX, sy: e.screenY, ox: pos.x, oy: pos.y, moved: false };
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }
+
+        function onMove(e) {
+          if (!drag) return;
+          const dx = (e.screenX - drag.sx) * scale;
+          const dy = (e.screenY - drag.sy) * scale;
+          if (!drag.moved && Math.hypot(dx, dy) < 5 * scale) return;
+          drag.moved = true;
+          pos = clamp({ x: Math.round(drag.ox + dx), y: Math.round(drag.oy + dy) });
+          const offset = collapsed ? fullSize.width - small : 0;
+          win.setPosition(new Pos(pos.x + offset, pos.y));
+        }
+
+        async function onUp(e) {
+          if (!drag) return;
+          const wasDrag = drag.moved;
+          const fromHandle = e.currentTarget === $('handle');
+          drag = null;
+          if (!wasDrag && fromHandle) {
+            collapsed = !collapsed;
+            await apply();
+          }
+          saveState({ x: pos.x, y: pos.y, collapsed });
+        }
+
+        // O Windows às vezes tira a janela do "sempre no topo" (ao trocar de
+        // tela, voltar da suspensão etc.) e o widget vai parar atrás dos
+        // apps. Desligar e religar a marca a cada poucos segundos traz ele
+        // de volta para a frente.
+        setInterval(() => {
+          if (drag) return;
+          win.setAlwaysOnTop(false).catch(() => {});
+          win.setAlwaysOnTop(true).catch(() => {});
+        }, 4000);
+
+        for (const el of [$('handle'), $('info')]) {
+          el.addEventListener('pointerdown', onDown);
+          el.addEventListener('pointermove', onMove);
+          el.addEventListener('pointerup', onUp);
+          el.addEventListener('pointercancel', () => (drag = null));
+        }
+      }
+
+      setupWindow().catch(err => console.error('window setup failed', err));
+
+      providers.onOutput(render);
+      render();
+    </script>
+  </body>
+</html>

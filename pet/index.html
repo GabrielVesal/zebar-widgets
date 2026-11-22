@@ -1,0 +1,912 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" type="text/css" href="./styles.css" />
+    <link rel="stylesheet" type="text/css" href="./pet.css" />
+  </head>
+  <body>
+    <div id="root" class="root">
+      <div id="answer" class="answer">
+        <div class="answer-bar">
+          <span id="answer-title" class="answer-title"></span>
+          <button id="answer-copy" class="answer-btn">Copy</button>
+          <button id="answer-close" class="answer-btn">Close</button>
+        </div>
+        <div id="answer-text" class="answer-text"></div>
+        <form id="reply-form" class="answer-reply">
+          <input id="reply" type="text" placeholder="Responder..." spellcheck="false" autocomplete="off" />
+          <button id="reply-send" type="submit" title="Enviar">
+            <svg viewBox="0 0 24 24"><path d="M12 4l7 7-1.4 1.4L13 7.8V20h-2V7.8l-4.6 4.6L5 11z" /></svg>
+          </button>
+        </form>
+      </div>
+      <div class="row">
+      <div id="status" class="status"></div>
+      <div id="bubble" class="bubble">
+        <input id="prompt" type="text" placeholder="Ask Claude..." spellcheck="false" />
+        <button id="clip" class="mic" title="Send what you copied">
+          <svg viewBox="0 0 24 24"><path d="M16 3h-2.2a2 2 0 0 0-3.6 0H8a1 1 0 0 0-1 1v1H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1V4a1 1 0 0 0-1-1zM9 5h6v2H9zm9 14H6V7h1v2h10V7h1z" /></svg>
+        </button>
+        <button id="mic" class="mic" hidden>
+          <svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V22h2v-3.1A7 7 0 0 0 19 12z" /></svg>
+        </button>
+        <button id="send">
+          <svg viewBox="0 0 24 24"><path d="M12 4l7 7-1.4 1.4L13 7.8V20h-2V7.8l-4.6 4.6L5 11z" /></svg>
+        </button>
+      </div>
+      <div id="petwrap" class="petwrap">
+        <!-- Pet: desenho em character.js, comportamento em engine.js -->
+        <span id="badge" class="badge"></span>
+        <div class="dust" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <div id="pet" class="pet">
+          <div id="character" class="pet-char"></div>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <script type="module">
+      import * as zebar from 'https://esm.sh/zebar@3.3.1';
+      import { createPet } from './engine.js';
+
+      // ---- Configuração ----
+      // Pasta onde o Claude Code abre. Vazio = pasta padrão do terminal.
+      // Exemplo: 'C:\\Users\\voce\\projetos\\meu-projeto'
+      const PROJECT_DIR = '';
+      // App que abre quando você clica no pet. Vazio = abre o terminal com o
+      // Claude Code. Se colocar um app aqui, libere ele também no zpack.json.
+      // Exemplo: 'C:\\Users\\voce\\AppData\\Local\\Programs\\Orca\\Orca.exe'
+      const CLICK_APP = '';
+      const SMALL = 90; // tamanho do widget fechado (px lógicos)
+      const WIDE = 440; // largura da janela (balão e painel de resposta)
+      const ANSWER_H = 340; // altura do painel de resposta rápida
+
+      const $ = id => document.getElementById(id);
+      const root = $('root');
+      const pet = $('pet');
+
+      const buddy = createPet($('character'), root, pet);
+
+      // Monta o comando em Base64 para o PowerShell, assim nenhum caractere
+      // do prompt (aspas, ponto e vírgula) é interpretado pelo terminal.
+      function encodeCommand(script) {
+        let bin = '';
+        for (const ch of script) {
+          const code = ch.codePointAt(0);
+          const units =
+            code > 0xffff
+              ? [0xd800 + ((code - 0x10000) >> 10), 0xdc00 + ((code - 0x10000) & 0x3ff)]
+              : [code];
+          for (const u of units) bin += String.fromCharCode(u & 0xff, u >> 8);
+        }
+        return btoa(bin);
+      }
+
+      // Clique no pet: abre o app escolhido em CLICK_APP (ou o terminal).
+      async function openApp() {
+        if (!CLICK_APP) return launch('');
+        pet.classList.remove('launch');
+        void pet.offsetWidth;
+        pet.classList.add('launch');
+        try {
+          // spawn, não exec: exec esperaria o app fechar.
+          await zebar.shellSpawn(CLICK_APP, []);
+        } catch (err) {
+          console.error(err);
+          pet.classList.add('error');
+          setTimeout(() => pet.classList.remove('error'), 1500);
+        }
+      }
+
+      async function launch(prompt) {
+        const script = prompt
+          ? `claude '${prompt.replaceAll("'", "''")}'`
+          : 'claude';
+        const args = [];
+        if (PROJECT_DIR) args.push('-d', PROJECT_DIR);
+        args.push('powershell', '-NoExit', '-EncodedCommand', encodeCommand(script));
+
+        pet.classList.remove('launch');
+        void pet.offsetWidth;
+        pet.classList.add('launch');
+
+        try {
+          await zebar.shellExec('wt.exe', args);
+        } catch (err) {
+          console.error(err);
+          pet.classList.add('error');
+          setTimeout(() => pet.classList.remove('error'), 1500);
+        }
+      }
+
+      // ---- Resposta rápida ----
+      // Enter: o Claude responde aqui mesmo, num painel acima do bichinho,
+      // sem abrir terminal. Ctrl+Enter: abre o Claude Code no terminal.
+      let asking = false;
+      // Preenchidas pelo setupWindow, que é quem controla a janela.
+      let setAnswerOpen = async () => {};
+
+      // ---- Markdown ----
+      // O Claude responde em Markdown. Converte o básico (negrito, itálico,
+      // código, títulos, listas, links) para HTML. O texto é escapado antes,
+      // então nada do que vier na resposta é executado como HTML.
+      let rawAnswer = '';
+
+      const escapeHtml = text =>
+        text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+      function inlineMd(text) {
+        return text
+          .replace(/`([^`]+)`/g, '<code>$1</code>')
+          .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+          .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+          .replace(/(^|[^*\w])\*([^*\s][^*]*?)\*(?!\w)/g, '$1<em>$2</em>')
+          .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1 ($2)');
+      }
+
+      function renderMd(source) {
+        const out = [];
+        let list = null; // 'ul' | 'ol'
+        let code = null; // linhas de um bloco de código aberto
+        let para = [];
+
+        const flushPara = () => {
+          if (para.length) out.push('<p>' + inlineMd(para.join('<br>')) + '</p>');
+          para = [];
+        };
+        const closeList = () => {
+          if (list) out.push('</' + list + '>');
+          list = null;
+        };
+
+        for (const rawLine of escapeHtml(source).split('\n')) {
+          const line = rawLine.replace(/\s+$/, '');
+
+          if (/^\s*```/.test(line)) {
+            if (code) {
+              out.push('<pre>' + code.join('\n') + '</pre>');
+              code = null;
+            } else {
+              flushPara();
+              closeList();
+              code = [];
+            }
+            continue;
+          }
+          if (code) {
+            code.push(rawLine);
+            continue;
+          }
+
+          const heading = line.match(/^#{1,6}\s+(.*)$/);
+          const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+          const numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+
+          if (!line.trim()) {
+            flushPara();
+            closeList();
+          } else if (heading) {
+            flushPara();
+            closeList();
+            out.push('<h4>' + inlineMd(heading[1]) + '</h4>');
+          } else if (bullet || numbered) {
+            flushPara();
+            const kind = bullet ? 'ul' : 'ol';
+            if (list !== kind) {
+              closeList();
+              out.push('<' + kind + '>');
+              list = kind;
+            }
+            out.push('<li>' + inlineMd((bullet || numbered)[1]) + '</li>');
+          } else {
+            closeList();
+            para.push(line);
+          }
+        }
+        if (code) out.push('<pre>' + code.join('\n') + '</pre>');
+        flushPara();
+        closeList();
+        return out.join('');
+      }
+
+      // Conversa da resposta rápida: várias trocas no mesmo painel.
+      // `sessionId` é a sessão do Claude Code, usada para continuar (--resume).
+      const convo = { sessionId: null, turns: [], status: '' };
+
+      function renderConvo() {
+        const html = convo.turns
+          .map(t =>
+            t.role === 'user'
+              ? '<div class="turn-q">' + escapeHtml(t.text) + '</div>'
+              : '<div class="turn-a">' + renderMd(t.text || '') + '</div>',
+          )
+          .join('');
+        const st = convo.status ? '<div class="turn-status">' + escapeHtml(convo.status) + '</div>' : '';
+        $('answer-text').innerHTML = html + st;
+        $('answer-text').scrollTop = $('answer-text').scrollHeight;
+        const last = [...convo.turns].reverse().find(t => t.role === 'assistant');
+        rawAnswer = last ? last.text : '';
+      }
+
+      // Compatível com quem ainda chama showAnswer: escreve na última resposta.
+      function showAnswer(text) {
+        const last = convo.turns[convo.turns.length - 1];
+        if (last && last.role === 'assistant') last.text = text;
+        else convo.turns.push({ role: 'assistant', text });
+        renderConvo();
+      }
+
+      let current = null; // pergunta em andamento
+
+      function finishAsk(job, text) {
+        if (current !== job) return;
+        clearTimeout(job.timer);
+        current = null;
+        asking = false;
+        $('answer').classList.remove('pending');
+        convo.status = '';
+        if (text !== null) {
+          showAnswer(text);
+          buddy.react('happy');
+        } else renderConvo();
+        $('reply').disabled = false;
+        setTimeout(() => $('reply').focus(), 50);
+        pollAgents();
+      }
+
+      // Cancela a pergunta em andamento e encerra o processo dela.
+      function cancelAsk() {
+        const job = current;
+        if (!job) return;
+        try {
+          job.proc?.kill();
+        } catch (err) {
+          console.error(err);
+        }
+        finishAsk(job, null);
+      }
+
+      // Com `fromClipboard`, o que estiver copiado vai junto como conteúdo e
+      // `prompt` é a instrução sobre ele.
+      // `followUp`: continua a conversa aberta no painel (mesma sessão).
+      async function ask(prompt, fromClipboard = false, followUp = false) {
+        cancelAsk();
+        if (!followUp || !convo.sessionId) {
+          convo.sessionId = null;
+          convo.turns = [];
+          $('answer-title').textContent = (fromClipboard ? 'Clipboard · ' : '') + prompt;
+        }
+        convo.turns.push({ role: 'user', text: fromClipboard ? '📋 ' + prompt : prompt });
+        convo.turns.push({ role: 'assistant', text: '' });
+        convo.status = 'Pensando...';
+        const job = { out: '', err: '', buf: '', proc: null, timer: null, parts: [] };
+        current = job;
+        asking = true;
+        $('reply').disabled = true;
+        renderConvo();
+        $('answer').classList.add('pending');
+        await setAnswerOpen(true);
+        pollAgents();
+
+        const lines = [
+          '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
+          // Marca a sessão como pergunta rápida, para os hooks do Claude Code
+          // não a contarem como um agente (ver hook.ps1).
+          "$env:PET_QUICK = '1'",
+        ];
+        if (PROJECT_DIR) {
+          lines.push(`Set-Location -LiteralPath '${PROJECT_DIR.replaceAll("'", "''")}'`);
+        }
+        const quoted = `'${prompt.replaceAll("'", "''")}'`;
+        // stream-json: dá o id da sessão (para continuar) e o texto por etapa.
+        // Ferramentas só de leitura e busca liberadas; nada que altere o PC.
+        let flags = '--output-format stream-json --verbose --allowedTools WebSearch WebFetch Read Glob Grep';
+        if (followUp && convo.sessionId) flags += ` --resume ${convo.sessionId}`;
+        if (fromClipboard) {
+          // O PowerShell lê a área de transferência e entrega o texto ao
+          // Claude pela entrada padrão. Só acontece quando você clica.
+          lines.push(
+            '$OutputEncoding = New-Object Text.UTF8Encoding($false)',
+            '$clip = Get-Clipboard -Raw',
+            "if (-not $clip) { 'The clipboard has no text.'; exit }",
+            'if ($clip.Length -gt 20000) { $clip = $clip.Substring(0, 20000) }',
+            `$clip | claude -p ${quoted} ${flags}`,
+          );
+        } else {
+          // $null no stdin: sem isso o Claude ficaria esperando entrada.
+          lines.push(`$null | claude -p ${quoted} ${flags}`);
+        }
+
+        try {
+          job.proc = await zebar.shellSpawn('powershell.exe', [
+            '-NoProfile',
+            '-EncodedCommand',
+            encodeCommand(lines.join('; ')),
+          ]);
+        } catch (err) {
+          console.error(err);
+          finishAsk(job, 'Could not run Claude: ' + (err?.message || err));
+          return;
+        }
+        if (current !== job) {
+          job.proc.kill();
+          return;
+        }
+
+        const TOOL_LABEL = { WebSearch: 'Pesquisando na web...', WebFetch: 'Lendo a página...', Read: 'Lendo arquivo...', Glob: 'Procurando arquivos...', Grep: 'Procurando no código...' };
+        function handleEvent(ev) {
+          if (ev.session_id) convo.sessionId = ev.session_id;
+          if (ev.type === 'assistant' && ev.message && Array.isArray(ev.message.content)) {
+            for (const c of ev.message.content) {
+              if (c.type === 'text' && c.text) job.parts.push(c.text);
+              if (c.type === 'tool_use') convo.status = TOOL_LABEL[c.name] || 'Trabalhando...';
+            }
+            const text = job.parts.join('\n\n').trim();
+            if (text) {
+              $('answer').classList.remove('pending');
+              showAnswer(text);
+              buddy.react('talk');
+            } else renderConvo();
+          }
+          if (ev.type === 'result') {
+            job.out = (ev.result || job.parts.join('\n\n') || '').trim();
+            if (ev.is_error && !job.out) job.out = 'Erro: ' + (ev.subtype || 'falhou');
+          }
+        }
+
+        // Cada linha da saída é um evento JSON; texto solto (erros) vai para job.err.
+        job.proc.onStdout(data => {
+          if (current !== job) return;
+          job.buf += data.endsWith('\n') ? data : data + '\n';
+          let i;
+          while ((i = job.buf.indexOf('\n')) >= 0) {
+            const line = job.buf.slice(0, i).trim();
+            job.buf = job.buf.slice(i + 1);
+            if (!line) continue;
+            try {
+              handleEvent(JSON.parse(line));
+            } catch {
+              job.err += line + '\n';
+            }
+          }
+        });
+        job.proc.onStderr(data => {
+          job.err += data.endsWith('\n') ? data : data + '\n';
+        });
+        job.proc.onExit(() => {
+          finishAsk(job, job.out || job.parts.join('\n\n').trim() || job.err.trim() || 'No answer.');
+        });
+
+        // Sem resposta em 3 minutos, desiste e encerra o processo.
+        job.timer = setTimeout(() => {
+          if (current !== job) return;
+          try {
+            job.proc.kill();
+          } catch (err) {}
+          finishAsk(job, job.out.trim() || 'Timed out waiting for Claude.' + (job.err ? '\n\n' + job.err.trim() : ''));
+        }, 3 * 60 * 1000);
+      }
+
+      // Fechar o painel também cancela a pergunta que estiver rodando.
+      $('reply-form').addEventListener('submit', e => {
+        e.preventDefault();
+        const text = $('reply').value.trim();
+        if (!text || asking) return;
+        $('reply').value = '';
+        buddy.react('go');
+        ask(text, false, true);
+      });
+      $('reply').addEventListener('input', () => buddy.react('type'));
+
+      $('answer-close').addEventListener('click', () => {
+        convo.sessionId = null;
+        convo.turns = [];
+        buddy.react('bye');
+        cancelAsk();
+        setAnswerOpen(false);
+      });
+      $('answer-copy').addEventListener('click', async () => {
+        const text = rawAnswer;
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch (err) {
+          const area = document.createElement('textarea');
+          area.value = text;
+          document.body.appendChild(area);
+          area.select();
+          document.execCommand('copy');
+          area.remove();
+        }
+        $('answer-copy').textContent = 'Copied';
+        buddy.react('copy');
+        setTimeout(() => ($('answer-copy').textContent = 'Copy'), 1200);
+      });
+
+      // Botão da prancheta: manda o que foi copiado. O que estiver digitado
+      // no campo vira a instrução; sem nada digitado, pede uma explicação.
+      const CLIP_DEFAULT =
+        'Explique de forma curta o conteúdo recebido na entrada. Se for um erro, diga a causa provável e como corrigir. Se for código, diga o que ele faz. Se for texto, resuma.';
+
+      $('clip').addEventListener('click', () => {
+        buddy.react('gulp');
+        const typed = $('prompt').value.trim();
+        $('prompt').value = '';
+        $('prompt').blur();
+        ask(
+          typed
+            ? typed + '\n\n(O conteúdo a que me refiro foi enviado na entrada.)'
+            : CLIP_DEFAULT,
+          true,
+        );
+      });
+
+      function submit(inTerminal) {
+        const value = $('prompt').value.trim();
+        if (!value) {
+          $('prompt').classList.add('shake');
+          buddy.react('no');
+          setTimeout(() => $('prompt').classList.remove('shake'), 400);
+          return;
+        }
+        $('prompt').value = '';
+        $('prompt').blur();
+        if (inTerminal === true) launch(value);
+        else {
+          buddy.react('go');
+          ask(value);
+        }
+      }
+
+      $('send').addEventListener('click', () => submit(false));
+
+      // ---- Estado dos agentes do Claude Code ----
+      // Os hooks do Claude Code gravam o estado de cada sessão em agents.json
+      // (ver hook.ps1). O pet lê esse arquivo e reage: agitado quando há
+      // agente trabalhando, pulando quando algum precisa de você, e uma
+      // voltinha quando um termina.
+      const STALE = 60 * 60 * 1000; // ignora estados parados há mais de 1h
+      const DONE_SHOW = 8000; // tempo do aviso de "terminou"
+      const WORKING_MAX = 4 * 60 * 1000;
+      const WAITING_MAX = 15 * 60 * 1000;
+      let lastDoneSeen = Date.now();
+      // Preenchida pelo setupWindow: ajusta a janela quando o aviso aparece ou some.
+      let onStatusChange = () => {};
+
+      const folderName = cwd => (cwd || '').split(/[\\/]/).filter(Boolean).pop() || 'Claude';
+
+      async function pollAgents() {
+        let agents = {};
+        try {
+          const res = await fetch('./agents.json?t=' + Date.now(), { cache: 'no-store' });
+          if (res.ok) agents = (await res.json()) || {};
+        } catch (err) {
+          return;
+        }
+
+        const now = Date.now();
+        const list = Object.values(agents).filter(a => a && now - a.ts < STALE);
+        // Um Claude trabalhando manda sinal a cada ferramenta que usa. Sem
+        // sinal por alguns minutos, a sessão provavelmente foi fechada sem
+        // avisar (terminal fechado no X), então para de contar.
+        const waiting = list.filter(a => a.state === 'waiting' && now - a.ts < WAITING_MAX);
+        const working = list.filter(a => a.state === 'working' && now - a.ts < WORKING_MAX);
+        const justDone = list
+          .filter(a => a.state === 'done' && a.ts > lastDoneSeen && now - a.ts < DONE_SHOW)
+          .sort((a, b) => b.ts - a.ts);
+
+        let mode = 'idle';
+        let text = '';
+        if (waiting.length) {
+          mode = 'waiting';
+          text = 'Needs you · ' + folderName(waiting[0].cwd);
+        } else if (justDone.length) {
+          mode = 'done';
+        } else if (working.length) {
+          mode = 'working';
+        }
+
+        for (const m of ['idle', 'working', 'waiting', 'done']) {
+          root.classList.toggle('agents-' + m, m === mode);
+        }
+        if ($('status').textContent !== text) {
+          $('status').textContent = text;
+          onStatusChange();
+        }
+        root.classList.toggle('thinking', asking);
+        const active = working.length + waiting.length;
+        buddy.setAgents(active);
+        // Terminou: só um selo de "check" no bichinho, sem balão de texto.
+        $('badge').textContent = mode === 'done' ? '\u2713' : active > 1 ? String(active) : '';
+
+        // Depois que o aviso de "terminou" expira, não mostra de novo.
+        const expired = list.filter(a => a.state === 'done' && now - a.ts >= DONE_SHOW);
+        for (const a of expired) lastDoneSeen = Math.max(lastDoneSeen, a.ts);
+      }
+
+      setInterval(pollAgents, 2000);
+      pollAgents();
+
+      // ---- Voz ----
+      // Clique no microfone, fale, e o que for reconhecido vai para o Claude.
+      // Se o reconhecimento não existir ou falhar neste navegador embutido,
+      // o campo avisa para usar o ditado do Windows (Win + H).
+      const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const DEFAULT_HINT = $('prompt').placeholder;
+      let recognition = null;
+
+      function stopListening(hint) {
+        root.classList.remove('listening');
+        $('prompt').placeholder = hint || DEFAULT_HINT;
+        recognition = null;
+      }
+
+      function startListening() {
+        if (recognition) {
+          recognition.stop();
+          return;
+        }
+        let finalText = '';
+        let failed = false;
+        recognition = new Recognition();
+        recognition.lang = 'pt-BR';
+        recognition.interimResults = true;
+        recognition.continuous = false;
+
+        recognition.onresult = e => {
+          let text = '';
+          for (const result of e.results) text += result[0].transcript;
+          $('prompt').value = text;
+          buddy.react('talk');
+          if (e.results[e.results.length - 1].isFinal) {
+            finalText = text.trim();
+            buddy.react('heard');
+          }
+        };
+        recognition.onerror = e => {
+          failed = true;
+          console.error('speech error', e.error);
+          stopListening(
+            e.error === 'no-speech' ? DEFAULT_HINT : 'Voice unavailable, try Win + H',
+          );
+        };
+        recognition.onend = () => {
+          if (failed) return;
+          stopListening();
+          if (finalText) submit(false);
+        };
+
+        try {
+          recognition.start();
+          root.classList.add('listening');
+          $('prompt').value = '';
+          $('prompt').placeholder = 'Listening...';
+        } catch (err) {
+          console.error(err);
+          stopListening('Voice unavailable, try Win + H');
+        }
+      }
+
+      if (Recognition) {
+        $('mic').hidden = false;
+        $('mic').addEventListener('click', startListening);
+      }
+      $('prompt').addEventListener('input', () => buddy.react('type'));
+      $('prompt').addEventListener('focus', () => buddy.react('focus'));
+      $('prompt').addEventListener('keydown', e => {
+        if (e.key === 'Enter') submit(e.ctrlKey);
+        if (e.key === 'Escape') $('prompt').blur();
+      });
+
+      // ---- Janela: abrir balão, arrastar, lembrar posição ----
+      const STORE = 'pet-widget-state-v1';
+
+      function loadState() {
+        try {
+          return JSON.parse(localStorage.getItem(STORE)) || {};
+        } catch {
+          return {};
+        }
+      }
+
+      function saveState(state) {
+        try {
+          localStorage.setItem(STORE, JSON.stringify(state));
+        } catch {}
+      }
+
+      async function setupWindow() {
+        const win = zebar.currentWidget().tauriWindow;
+        const scale = await win.scaleFactor();
+        const startPos = await win.outerPosition();
+        const startSize = await win.innerSize();
+        const Pos = startPos.constructor;
+        const Size = startSize.constructor;
+        const small = Math.round(SMALL * scale);
+        const wide = Math.round(WIDE * scale);
+
+        // Fechado, a janela tem só o tamanho do bichinho, então não existe
+        // área invisível em volta bloqueando cliques. Ela só cresce enquanto
+        // o balão, um aviso ou o painel de resposta estão na tela.
+        // `pos` é a posição do bichinho (canto superior esquerdo, px físicos).
+        let pos = { x: startPos.x, y: startPos.y };
+        let flip = false; // balão à direita, quando não cabe à esquerda
+        let open = false;
+        let closeTimer = null;
+        let drag = null;
+        // Altura extra da janela enquanto o painel de resposta está aberto.
+        const answerH = Math.round(ANSWER_H * scale);
+        let extra = 0;
+
+        // Telas ligadas ao computador, em px físicos. Serve para manter o
+        // widget dentro da tela em que ele está, com uma ou mais telas.
+        let monitors = [];
+        try {
+          const api = await import('https://esm.sh/@tauri-apps/api@2/window');
+          monitors = (await api.availableMonitors()).map(m => ({
+            l: m.position.x,
+            t: m.position.y,
+            r: m.position.x + m.size.width,
+            b: m.position.y + m.size.height,
+          }));
+        } catch (err) {
+          console.error(err);
+        }
+        // Sem essa informação o widget fica livre, sem limite de tela.
+        if (!monitors.length) monitors = [{ l: -1e7, t: -1e7, r: 1e7, b: 1e7 }];
+
+        // Tela mais próxima de um retângulo.
+        function monitorOf(p, w, h) {
+          const cx = p.x + w / 2;
+          const cy = p.y + h / 2;
+          let best = monitors[0];
+          let bestDist = Infinity;
+          for (const m of monitors) {
+            const dx = Math.max(m.l - cx, 0, cx - m.r);
+            const dy = Math.max(m.t - cy, 0, cy - m.b);
+            const dist = dx * dx + dy * dy;
+            if (dist < bestDist) {
+              bestDist = dist;
+              best = m;
+            }
+          }
+          return best;
+        }
+
+        function clamp(p) {
+          const m = monitorOf(p, small, small);
+          return {
+            x: Math.min(Math.max(m.l, p.x), Math.max(m.l, m.r - small)),
+            y: Math.min(Math.max(m.t, p.y), Math.max(m.t, m.b - small)),
+          };
+        }
+
+        const winX = () => (flip ? pos.x : pos.x - (wide - small));
+        // Com o painel aberto a janela cresce para cima; perto do topo da
+        // tela ela encosta no topo e o bichinho desce dentro dela.
+        const winY = () =>
+          Math.max(monitorOf(pos, small, small).t, pos.y - extra);
+
+        function layout() {
+          root.classList.toggle('flip', flip);
+          root.style.setProperty('--row-top', (pos.y - winY()) / scale + 'px');
+        }
+
+        const nextFrame = () => new Promise(r => requestAnimationFrame(() => r()));
+
+        // A janela é larga só quando há algo para mostrar ao lado do bichinho.
+        const wantWide = () => open || extra > 0 || $('status').textContent !== '';
+        let isWide = false;
+        const curX = () => (isWide ? winX() : pos.x);
+
+        // Aplica tamanho e posição da janela conforme o estado atual. As
+        // trocas são enfileiradas, e o conteúdo some por um instante durante
+        // cada uma, para nada "pular" na tela.
+        let applied = '';
+        let queue = Promise.resolve();
+
+        function syncGeometry() {
+          queue = queue.then(async () => {
+            const widen = wantWide();
+            const key = [widen, extra, flip, pos.x, pos.y].join('|');
+            if (key === applied) return;
+            const resizing = !applied.startsWith([widen, extra].join('|') + '|');
+            if (resizing) {
+              root.classList.add('switching');
+              await nextFrame();
+            }
+            try {
+              isWide = widen;
+              layout();
+              const size = new Size(widen ? wide : small, small + extra);
+              const at = new Pos(curX(), winY());
+              if (widen || extra) {
+                await win.setPosition(at);
+                await win.setSize(size);
+              } else {
+                await win.setSize(size);
+                await win.setPosition(at);
+              }
+              root.classList.toggle('wide', widen);
+              applied = key;
+            } catch (err) {
+              console.error(err);
+            } finally {
+              if (resizing) {
+                await nextFrame();
+                root.classList.remove('switching');
+              }
+            }
+          });
+          return queue;
+        }
+        onStatusChange = syncGeometry;
+
+        async function place() {
+          flip = pos.x - monitorOf(pos, small, small).l < wide - small;
+          await syncGeometry();
+        }
+
+        // Abre ou fecha o painel de resposta. O conteúdo some durante a
+        // troca de tamanho da janela, para nada "pular".
+        setAnswerOpen = async value => {
+          const target = value ? answerH : 0;
+          if (target === extra) return;
+          extra = target;
+          root.classList.toggle('answering', value);
+          await syncGeometry();
+        };
+
+        document.addEventListener('keydown', e => {
+          if (e.key === 'Escape' && extra) {
+            cancelAsk();
+            setAnswerOpen(false);
+          }
+        });
+
+        function setOpen(value) {
+          if (open === value) return;
+          open = value;
+          // Ao abrir, a janela cresce antes de o balão aparecer; ao fechar,
+          // o balão some antes de a janela encolher.
+          if (value) syncGeometry().then(() => root.classList.toggle('open', open));
+          else {
+            root.classList.remove('open');
+            syncGeometry();
+          }
+        }
+
+        const saved = loadState();
+        if (typeof saved.x === 'number' && typeof saved.y === 'number') {
+          pos = clamp({ x: saved.x, y: saved.y });
+        }
+        // A janela recebe cliques normalmente (nada de "clique atravessa").
+        win.setIgnoreCursorEvents(false).catch(() => {});
+
+        await place();
+        root.classList.add('ready');
+
+        function scheduleClose() {
+          if (closeTimer) return;
+          closeTimer = setTimeout(() => {
+            closeTimer = null;
+            if (document.activeElement === $('prompt')) return;
+            if (root.classList.contains('listening')) return;
+            setOpen(false);
+          }, 600);
+        }
+
+        function cancelClose() {
+          clearTimeout(closeTimer);
+          closeTimer = null;
+        }
+
+        // Acompanha o cursor para saber quando ele está em cima do bichinho
+        // (ou do balão aberto) e só então a janela passa a receber cliques.
+        async function track() {
+          if (drag) return;
+          let cursor;
+          try {
+            cursor = await win.cursorPosition();
+          } catch (err) {
+            return;
+          }
+          buddy.look(cursor.x - (pos.x + small / 2), cursor.y - (pos.y + small / 2), small);
+          const inRow = cursor.y >= pos.y && cursor.y < pos.y + small;
+          const overPet = inRow && cursor.x >= pos.x && cursor.x < pos.x + small;
+          const overWindow = inRow && cursor.x >= winX() && cursor.x < winX() + wide;
+          // Com o painel de resposta aberto, a janela inteira recebe cliques.
+          const overAnswer =
+            extra > 0 &&
+            cursor.x >= winX() && cursor.x < winX() + wide &&
+            cursor.y >= winY() && cursor.y < winY() + small + extra;
+          const inside = overPet || (open && overWindow) || overAnswer;
+
+          if (overPet && !open) setOpen(true);
+          if (inside) cancelClose();
+          else if (open) scheduleClose();
+        }
+
+        // Se não der para ler o cursor, a janela fica sempre clicável e o
+        // balão abre pelo evento normal de mouse.
+        let canTrack = true;
+        try {
+          await win.cursorPosition();
+        } catch (err) {
+          canTrack = false;
+        }
+
+        if (canTrack) {
+          setInterval(track, 100);
+        } else {
+          $('petwrap').addEventListener('mouseenter', () => {
+            cancelClose();
+            setOpen(true);
+          });
+          root.addEventListener('mouseleave', scheduleClose);
+        }
+        $('prompt').addEventListener('blur', scheduleClose);
+
+        // O Windows às vezes tira a janela do "sempre no topo" (ao trocar de
+        // tela, voltar da suspensão etc.) e o widget vai parar atrás dos
+        // apps. Desligar e religar a marca a cada poucos segundos traz ele
+        // de volta para a frente.
+        setInterval(() => {
+          if (drag) return;
+          win.setAlwaysOnTop(false).catch(() => {});
+          win.setAlwaysOnTop(true).catch(() => {});
+        }, 4000);
+
+        const handle = $('petwrap');
+
+        handle.addEventListener('pointerdown', e => {
+          if (e.button !== 0) return;
+          drag = { sx: e.screenX, sy: e.screenY, ox: pos.x, oy: pos.y, moved: false };
+          handle.setPointerCapture(e.pointerId);
+        });
+
+        handle.addEventListener('pointermove', e => {
+          if (!drag) return;
+          const dx = (e.screenX - drag.sx) * scale;
+          const dy = (e.screenY - drag.sy) * scale;
+          if (!drag.moved && Math.hypot(dx, dy) < 5 * scale) return;
+          if (!drag.moved) {
+            drag.moved = true;
+            root.classList.add('dragging');
+            cancelClose();
+            setOpen(false);
+          }
+          pos = clamp({ x: Math.round(drag.ox + dx), y: Math.round(drag.oy + dy) });
+          // Durante o arrasto o lado do balão não muda, para a janela não pular.
+          layout();
+          win.setPosition(new Pos(curX(), winY()));
+        });
+
+        handle.addEventListener('pointerup', async e => {
+          if (!drag) return;
+          const shift = e.shiftKey;
+          const wasDrag = drag.moved;
+          drag = null;
+          root.classList.remove('dragging');
+          if (wasDrag) {
+            await place();
+            saveState({ x: pos.x, y: pos.y });
+          } else if (shift) {
+            launch(''); // Shift + clique: terminal com o Claude Code
+          } else {
+            openApp();
+          }
+        });
+
+        handle.addEventListener('pointercancel', () => {
+          drag = null;
+          root.classList.remove('dragging');
+        });
+
+      }
+
+      setupWindow().catch(err => console.error('window setup failed', err));
+    </script>
+  </body>
+</html>
